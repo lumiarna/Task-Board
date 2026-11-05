@@ -25,7 +25,7 @@ import { openEditTaskView } from "../services/OpenModals.js";
 import { compareTwoTags, verifySubtasksAndChildtasksAreComplete } from "../utils/algorithms/ScanningFilterer.js";
 import { getObsidianIndentationSetting, isTaskLine } from "../utils/CheckBoxUtils.js";
 import { applyIdToTaskItem } from "../utils/TaskItemUtils.js";
-import { getFormattedTaskContentSync, cleanTaskTitleLegacy, sanitizeStatus, sanitizeCreatedDate, sanitizeStartDate, sanitizeScheduledDate, sanitizeDueDate, sanitizeReminder, sanitizePriority, sanitizeTime, sanitizeTags, sanitizeDependsOn } from "../utils/taskLine/TaskContentFormatter.js";
+import { getFormattedTaskContentSync, cleanTaskTitleLegacy, removeTagsFromBody, sanitizeStatus, sanitizeCreatedDate, sanitizeStartDate, sanitizeScheduledDate, sanitizeDueDate, sanitizeReminder, sanitizePriority, sanitizeTime, sanitizeTags, sanitizeDependsOn } from "../utils/taskLine/TaskContentFormatter.js";
 import { formatTaskNoteContent, isTaskNotePresentInTags } from "../utils/taskNote/TaskNoteUtils.js";
 import { updateRGBAOpacity } from "../utils/UIHelpers.js";
 import { handleEditTask } from "../utils/UserTaskEvents.js";
@@ -403,11 +403,11 @@ export const TaskEditorRC: React.FC<{
 			const newTagsList = tags.concat(input);
 
 			if (!isTaskNote) {
-				const newTitle = sanitizeTags(title, newTagsList, cursorLocationRef.current ?? undefined);
+				const newTitle = sanitizeTags(title, newTagsList, cursorLocationRef.current ?? undefined, bodyContent.split('\n'));
 				setTitle(newTitle);
 			}
 
-			if (!tags.includes(input)) {
+			if (!tags.some(tag => compareTwoTags(tag, input))) {
 				setTags(prevTags => [...prevTags, input]);
 				e.currentTarget.value = '';
 				setIsEdited(true);
@@ -419,12 +419,14 @@ export const TaskEditorRC: React.FC<{
 	// NEW refs to always track the latest value of title and tags
 	const titleRef = useRef(title);
 	const tagsRef = useRef(tags);
+	const bodyContentRef = useRef(bodyContent);
 
 	// Keep refs updated on each render
 	useEffect(() => {
 		titleRef.current = title;
 		tagsRef.current = tags;
-	}, [title, tags]);
+		bodyContentRef.current = bodyContent;
+	}, [title, tags, bodyContent]);
 	useEffect(() => {
 		if (!tagsInputFieldRef.current) return;
 
@@ -435,11 +437,11 @@ export const TaskEditorRC: React.FC<{
 
 			if (!isTaskNote) {
 				const newTagsList = currentTags.concat(choice);
-				const newTitle = sanitizeTags(currentTitle, newTagsList, cursorLocationRef.current ?? undefined);
+				const newTitle = sanitizeTags(currentTitle, newTagsList, cursorLocationRef.current ?? undefined, bodyContentRef.current.split('\n'));
 				setTitle(newTitle);
 			}
 
-			if (!currentTags.includes(choice)) {
+			if (!currentTags.some(tag => compareTwoTags(tag, choice))) {
 				setTags(prevTags => [...prevTags, choice]);
 			}
 			setIsEdited(true);
@@ -456,11 +458,13 @@ export const TaskEditorRC: React.FC<{
 	}, [plugin.app]);
 	// Function to remove a tag
 	const removeTag = (tagToRemove: string) => {
-		const newTags = tags.filter(tag => tag !== tagToRemove);
+		const newTags = tags.filter(tag => !compareTwoTags(tag, tagToRemove));
 
 		if (!isTaskNote) {
-			const newTitle = sanitizeTags(title, newTags, cursorLocationRef.current ?? undefined);
+			const newBodyLines = removeTagsFromBody(bodyContent.split('\n'), [tagToRemove]);
+			const newTitle = sanitizeTags(title, newTags, cursorLocationRef.current ?? undefined, newBodyLines);
 			setTitle(newTitle);
+			setBodyContent(newBodyLines.join('\n'));
 		}
 		setTags(newTags);
 

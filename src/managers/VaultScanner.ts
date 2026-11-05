@@ -315,7 +315,15 @@ export default class VaultScanner {
 							continue; // We will going to skip storing this task inside the cache.
 						}
 
-						const tags = extractTags(line);
+						const bodyLines = extractBody(
+							lines,
+							lineIndex + 1,
+							this.indentationString,
+						);
+						const tags = extractTagsFromTaskContent(
+							line,
+							bodyLines,
+						);
 						if (scanFilterForTags(tags, scanFilters)) {
 							this.tasksDetectedOrUpdated = true;
 							const legacyId = extractTaskId(line);
@@ -349,11 +357,6 @@ export default class VaultScanner {
 								extractCompletionDate(line)?.[1] ?? "";
 							const cancelledDate =
 								extractCancelledDate(line)?.[1] ?? "";
-							const bodyLines = extractBody(
-								lines,
-								lineIndex + 1,
-								this.indentationString,
-							);
 
 							if (
 								this.plugin.settings.data.dailyNotesPluginComp
@@ -786,10 +789,10 @@ export function buildTaskFromRawContent(
 	const scheduledDate = extractScheduledDate(firstLine);
 	const due = extractDueDate(firstLine);
 	const priority = extractPriority(firstLine);
-	const tags = extractTags(firstLine);
 	const completionDate = extractCompletionDate(firstLine);
 	const cancelledDate = extractCancelledDate(firstLine);
 	const body = extractBody(lines, 1, indentationString);
+	const tags = extractTagsFromTaskContent(firstLine, body);
 
 	return {
 		title: title,
@@ -1140,6 +1143,23 @@ export function extractTags(text: string): string[] {
 	text = text.replace(/<(mark|font).*?>/g, ""); // TODO : this might not required, try removing this.
 	const matches = text.match(TaskRegularExpressions.hashTagsRegex);
 	return matches ? matches.map((tag) => tag.trim().replace("#", "")) : [];
+}
+
+/**
+ * Extracts all tags belonging to a task from its title line and its body
+ * (description) lines. Tags written on indented lines after the task line are
+ * part of the same task, so they are merged with the title tags. The result
+ * keeps the first occurrence order and removes duplicates.
+ * @param titleLine - The main task line including the checkbox.
+ * @param bodyLines - The indented lines that belong to the task.
+ * @returns A de-duplicated array of tags.
+ */
+export function extractTagsFromTaskContent(
+	titleLine: string,
+	bodyLines: string[] = [],
+): string[] {
+	const tags = [titleLine, ...bodyLines].flatMap((line) => extractTags(line));
+	return [...new Set(tags)];
 }
 
 export function extractReminder(

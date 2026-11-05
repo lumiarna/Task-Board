@@ -26,6 +26,8 @@ import {
 	sanitizeStartDate,
 	sanitizeScheduledDate,
 	sanitizeDueDate,
+	normalizeTagWithHash,
+	removeTagsFromBody,
 	sanitizeReminder,
 	sanitizeTags,
 } from "./taskLine/TaskContentFormatter.js";
@@ -35,6 +37,31 @@ import {
 	updateFrontmatterInMarkdownFile,
 } from "./taskNote/TaskNoteUtils.js";
 
+
+/**
+ * Returns the tags that exist in the old list but are absent from the new list.
+ * Used to remove only explicitly deleted tags from the task body.
+ */
+const getRemovedTags = (oldTags: string[], newTags: string[]): string[] => {
+	const newTagSet = new Set(newTags.map((tag) => normalizeTagWithHash(tag)));
+	return (oldTags ?? []).filter(
+		(tag) => !newTagSet.has(normalizeTagWithHash(tag)),
+	);
+};
+
+/**
+ * Applies a tag-list change to an inline task's content: removes explicitly
+ * deleted tags from the body and keeps the title in sync with the new tags.
+ */
+const applyTagChangesToTaskContent = (
+	task: taskItem,
+	oldTags: string[],
+	newTags: string[],
+): void => {
+	const removedTags = getRemovedTags(oldTags, newTags);
+	task.body = removeTagsFromBody(task.body, removedTags);
+	task.title = sanitizeTags(task.title, newTags, undefined, task.body);
+};
 /**
  * Handle edit task event when user click on the edit task button. Depends on the configurations, it will either open the edit task modal, edit task view, directly open the inline-task in note and highlight the task or also open the edit task modal of tasks plugin.
  * @param plugin - Taskboard plugin instance
@@ -557,7 +584,7 @@ export const updateTaskItemTags = (
 			}, 1000);
 		});
 	} else {
-		newTask.title = sanitizeTags(newTask.title, newTags);
+		applyTagChangesToTaskContent(newTask, taskOld.tags, newTags);
 		void updateTaskInFile(plugin, newTask, taskOld).then(() => {
 			plugin.realTimeScanner
 				.processAllUpdatedFiles(taskOld.filePath, taskOld.id)
@@ -599,8 +626,9 @@ export const updateTaskItemProperty = async (
 		case "tags":
 			updatedTask.tags = newValue as string[];
 			if (!isThisTaskNote) {
-				updatedTask.title = sanitizeTags(
-					task.title,
+				applyTagChangesToTaskContent(
+					updatedTask,
+					task.tags,
 					newValue as string[],
 				);
 			}

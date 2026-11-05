@@ -23,6 +23,7 @@ import {
 	extractCancelledDate,
 	extractPriority,
 	extractDependsOn,
+	extractTags,
 } from "../../managers/VaultScanner.js";
 import { DATAVIEW_PLUGIN_DEFAULT_SYMBOLS } from "../../regularExpressions/DataviewPluginRegularExpr.js";
 import {
@@ -258,7 +259,12 @@ export const getSanitizedTaskContent = (
 		updatedTask.due,
 	);
 
-	updatedTitle = sanitizeTags(updatedTitle, updatedTask.tags);
+	updatedTitle = sanitizeTags(
+		updatedTitle,
+		updatedTask.tags,
+		undefined,
+		updatedTask.body,
+	);
 
 	updatedTitle = sanitizeReminder(
 		globalSettings,
@@ -1078,45 +1084,55 @@ export const sanitizePriority = (
 	}
 };
 
+export const normalizeTagWithHash = (tag: string): string => {
+	const trimmedTag = tag.trim();
+	return trimmedTag.startsWith("#") ? trimmedTag : `#${trimmedTag}`;
+};
+
 /**
  * Function to sanitize tags inside the task title.
  * @param title - The title of the task.
  * @param newTagsList - The updated list of tags that should exist (with #).
  * @param cursorLocation - (Optional) Cursor location for insertion.
+ * @param bodyLines - (Optional) The task body lines, whose tags also belong to the task.
  * @returns The sanitized title with correct tags.
  */
 export const sanitizeTags = (
 	title: string,
 	newTagsList: string[],
 	cursorLocation?: cursorLocationInterface,
+	bodyLines: string[] = [],
 ): string => {
 	// Remove <mark> and <font> tags before processing
 	let updatedTitle = title;
-	const tempTitle = title.replace(/<(mark|font).*?>/g, "");
 
 	// Regex to extract tags from title
-	const extractedTags = (
-		tempTitle.match(TaskRegularExpressions.hashTagsRegex) || []
-	).map((t) => t.trim());
+	const extractedTitleTags = extractTags(title).map((tag) =>
+		normalizeTagWithHash(tag),
+	);
+
+	// Tags already present in the task body (description) belong to the task
+	// too. Remember them so they are not appended to the title as new tags.
+	const extractedBodyTags = bodyLines.flatMap((line) =>
+		extractTags(line).map((tag) => normalizeTagWithHash(tag)),
+	);
 
 	// const oldTagSet = new Set(oldTagsList.map((t) => t.trim()));
 	// TODO : Soon, will update the tags management mechanism to store the tags without the `#`
 	// in the tasks cache. And here will directly apply the '#' to the newTagSet
 	// and reduce the below computations.
 	const newTagSet = new Set(
-		newTagsList.map((t) => {
-			let sTag = t.trim();
-			sTag = sTag.startsWith("#") ? sTag : `#${sTag}`;
-			return sTag;
-			// return t.trim();
-		}),
+		newTagsList.map((tag) => normalizeTagWithHash(tag)),
 	);
-	const extractedTagsSet = new Set(extractedTags.map((t) => t.trim()));
+	const existingTagsSet = new Set([
+		...extractedTitleTags,
+		...extractedBodyTags,
+	]);
 
 	// --------------------------------------------------
 	// 1. REMOVE TAGS THAT NO LONGER EXIST
 	// --------------------------------------------------
-	for (const tag of extractedTags) {
+	for (const tag of extractedTitleTags) {
 		if (!newTagSet.has(tag)) {
 			updatedTitle = updatedTitle.replace(tag, "").trimEnd();
 		}
@@ -1127,7 +1143,7 @@ export const sanitizeTags = (
 	// --------------------------------------------------
 	const tagsToAdd: string[] = [];
 	for (const tag of newTagSet) {
-		if (!extractedTagsSet.has(tag)) {
+		if (!existingTagsSet.has(tag)) {
 			tagsToAdd.push(tag);
 		}
 	}
@@ -1158,6 +1174,46 @@ export const sanitizeTags = (
 
 	// Sanitize the title by reducing two or more spaces into one space.
 	return updatedTitle.replace(/ {2,}/g, " ").trimEnd();
+};
+
+/**
+ * Removes specific tags from a task body. Tags in the body belong to the task,
+ * so removing a tag from the task should also remove its occurrences from the
+ * indented description lines. Only the supplied tags are removed, other body
+ * tags are left untouched.
+ * @param bodyLines - The raw body lines of the task, including their indentation.
+ * @param tagsToRemove - The tags to strip from the body (with or without '#').
+ * @returns A new array of body lines with the given tags stripped.
+ */
+export const removeTagsFromBody = (
+	bodyLines: string[],
+	tagsToRemove: string[],
+): string[] => {
+	if (tagsToRemove.length === 0) return bodyLines;
+
+	const tagsToRemoveSet = new Set(
+		tagsToRemove.map((tag) => normalizeTagWithHash(tag)),
+	);
+
+	return bodyLines.map((line) => {
+		const indentation = line.match(/^[\t ]*/)?.[0] ?? "";
+		const content = line.slice(indentation.length);
+		let tagRemoved = false;
+		const sanitizedContent = content.replace(
+			TaskRegularExpressions.hashTagsRegex,
+			(match) => {
+				if (tagsToRemoveSet.has(match.trim())) {
+					tagRemoved = true;
+					return "";
+				}
+				return match;
+			},
+		);
+
+		return (
+			indentation + (tagRemoved ? sanitizedContent.trimEnd() : content)
+		);
+	});
 };
 
 /**
