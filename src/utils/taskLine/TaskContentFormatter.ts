@@ -36,6 +36,7 @@ import {
 	formatDateTimeAsPerSettings,
 } from "../DateTimeCalculations.js";
 import { generateTaskId } from "../TaskItemUtils.js";
+import { appendTaskIdToContent } from "./TaskIdFormatter.js";
 import { isTaskLine } from "../CheckBoxUtils.js";
 
 /**
@@ -130,37 +131,11 @@ export const addIdToTaskContent = async (
 		forcefullyAddId
 	) {
 		newId = generateTaskId(Plugin);
-		const format = Plugin.settings.data.taskPropertyFormat;
-		switch (format) {
-			case taskPropertyFormatOptions.tasksPlugin:
-			case taskPropertyFormatOptions.default:
-				formattedTaskContent = formattedTaskContent.replace(
-					/^(.*?)(\n|$)/,
-					`$1 🆔 ${newId} $2`,
-				);
-				break;
-
-			case taskPropertyFormatOptions.dataviewPlugin:
-				formattedTaskContent = formattedTaskContent.replace(
-					/^(.*?)(\n|$)/,
-					`$1 [id:: ${newId}] $2`,
-				);
-				break;
-
-			case taskPropertyFormatOptions.obsidianNative:
-				formattedTaskContent = formattedTaskContent.replace(
-					/^(.*?)(\n|$)/,
-					`$1 @id(${newId}) $2`,
-				);
-				break;
-
-			default:
-				formattedTaskContent = formattedTaskContent.replace(
-					/^(.*?)(\n|$)/,
-					`$1 🆔 ${newId} $2`,
-				);
-				break;
-		}
+		formattedTaskContent = appendTaskIdToContent(
+			formattedTaskContent,
+			newId,
+			Plugin.settings.data.taskPropertyFormat,
+		);
 	}
 	return { formattedTaskContent, newId };
 };

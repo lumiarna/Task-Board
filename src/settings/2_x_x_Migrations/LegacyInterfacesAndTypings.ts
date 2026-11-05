@@ -105,6 +105,7 @@ export interface globalSettingsDataLegacy {
 	searchQuery?: string;
 	hiddenTaskProperties: taskPropertiesNames[];
 	autoAddUniqueID: boolean;
+	addIdDuringScan: boolean;
 	uniqueIdCounter: number; // Counter to generate unique IDs for tasks. This will keep track of the last used ID.
 	experimentalFeatures: boolean;
 	safeGuardFeature: boolean;
