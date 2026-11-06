@@ -125,7 +125,7 @@ export const getCustomStatusOptionsForDropdown = (
 			typeof status.symbol === "string" &&
 			typeof status.name === "string" &&
 			status.name.trim() !== "" &&
-			typeof status.type === typeof statusTypeNames;
+			typeof status.type === "string";
 
 		if (!isValid) {
 			bugReporterManagerInsatance.addToLogs(
