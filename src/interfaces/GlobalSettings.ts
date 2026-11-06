@@ -93,6 +93,8 @@ export interface globalSettingsData {
 	autoAddCreatedDate: boolean;
 	autoAddCompletedDate: boolean;
 	autoAddCancelledDate: boolean;
+	autoAddArchivedOnComplete: boolean;
+	archivedStatusSymbol: string;
 	// scanVaultAtStartup: boolean; - @deprecated v1.9.0 - A better approach has been used using showModifiedFilesNotice feature.
 	showModifiedFilesNotice: boolean;
 	scanMode: scanModeOptions;
@@ -205,6 +207,8 @@ export const DEFAULT_SETTINGS: PluginDataJson = {
 		autoAddCreatedDate: false,
 		autoAddCompletedDate: false,
 		autoAddCancelledDate: false,
+		autoAddArchivedOnComplete: false,
+		archivedStatusSymbol: "",
 		showModifiedFilesNotice: false,
 		scanMode: scanModeOptions.AUTOMATIC,
 		columnWidth: "300px",

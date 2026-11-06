@@ -2,6 +2,7 @@
 
 import {
 	App,
+	DropdownComponent,
 	Notice,
 	Platform,
 	Setting,
@@ -69,6 +70,7 @@ import {
 	exportConfigurations,
 } from "./SettingSynchronizer.js";
 import { MarkdownUIRenderer } from "../services/MarkdownUIRenderer.js";
+import { getDefaultArchivedStatusSymbol } from "../utils/taskLine/TaskContentFormatter.js";
 
 export class SettingsManager {
 	win: Window;
@@ -2398,6 +2400,8 @@ export class SettingsManager {
 			boundTaskCompletionToChildTasks,
 			autoAddCancelledDate,
 			autoAddCompletedDate,
+			autoAddArchivedOnComplete,
+			archivedStatusSymbol,
 		} = this.globalSettings;
 
 		new Setting(contentEl)
@@ -2456,6 +2460,74 @@ export class SettingsManager {
 					void this.saveSettings();
 				}),
 			);
+
+		const doneStatuses = (this.globalSettings.customStatuses ?? []).filter(
+			(status) => status.type === statusTypeNames.DONE,
+		);
+		let archivedStatusDropdown: DropdownComponent | null = null;
+
+		new Setting(contentEl)
+			.setName(t("auto-add-archived-on-complete"))
+			.setDesc(t("auto-add-archived-on-complete-desc"))
+			.addToggle((toggle) =>
+				toggle
+					.setValue(autoAddArchivedOnComplete ?? false)
+					.onChange((value) => {
+						this.globalSettings.autoAddArchivedOnComplete = value;
+						if (value) {
+							const hasValidDoneStatus = doneStatuses.some(
+								(status) =>
+									status.symbol ===
+									this.globalSettings.archivedStatusSymbol,
+							);
+							if (!hasValidDoneStatus) {
+								const defaultSymbol =
+									getDefaultArchivedStatusSymbol(
+										this.globalSettings.customStatuses,
+									);
+								this.globalSettings.archivedStatusSymbol =
+									defaultSymbol;
+								archivedStatusDropdown?.setValue(defaultSymbol);
+							}
+						}
+						archivedStatusDropdown?.setDisabled(
+							!value || doneStatuses.length === 0,
+						);
+						void this.saveSettings();
+					}),
+			);
+
+		new Setting(contentEl)
+			.setName(t("archived-status-symbol"))
+			.setDesc(t("archived-status-symbol-desc"))
+			.addDropdown((dropdown) => {
+				archivedStatusDropdown = dropdown;
+				doneStatuses.forEach((status) => {
+					dropdown.addOption(
+						status.symbol,
+						`${status.name} [${status.symbol}]`,
+					);
+				});
+				const initialSymbol = doneStatuses.some(
+					(status) => status.symbol === archivedStatusSymbol,
+				)
+					? archivedStatusSymbol
+					: getDefaultArchivedStatusSymbol(
+							this.globalSettings.customStatuses,
+						);
+				if (initialSymbol) {
+					dropdown.setValue(initialSymbol);
+				}
+				dropdown
+					.setDisabled(
+						!(autoAddArchivedOnComplete ?? false) ||
+							doneStatuses.length === 0,
+					)
+					.onChange((value) => {
+						this.globalSettings.archivedStatusSymbol = value;
+						void this.saveSettings();
+					});
+			});
 
 		// contentEl.createEl("h4", { text: t("compatible-plugins") });
 		new Setting(contentEl).setName(t("compatible-plugins")).setHeading();

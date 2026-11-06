@@ -7,7 +7,10 @@ import {
 	NotificationService,
 	taskPropertiesNames,
 } from "../../interfaces/Enums.js";
-import { globalSettingsData } from "../../interfaces/GlobalSettings.js";
+import {
+	CustomStatus,
+	globalSettingsData,
+} from "../../interfaces/GlobalSettings.js";
 import { priorityEmojis } from "../../interfaces/Mapping.js";
 import {
 	cursorLocationInterface,
@@ -89,7 +92,9 @@ export const getFormattedTaskContent = async (
 	// let taskLine = `${checkBoxStat} ${task.title}`;
 
 	// Replace the status checkbox in the title with the current status. But only the first occurrence of the /\[(.)\]/ pattern.
-	let taskLine = task.title.replace(/\[(.)\]/, `[${task.status}]`);
+	let taskLine = keepArchivedFieldAtEnd(
+		task.title.replace(/\[(.)\]/, `[${task.status}]`),
+	);
 
 	// Add the body content, indent each line with a tab (or 4 spaces) for proper formatting
 	const bodyLines = task.body
@@ -157,7 +162,9 @@ export const getFormattedTaskContentSync = (task: taskItem): string => {
 	// let taskLine = `${checkBoxStat} ${task.title}`;
 
 	// Replace the status checkbox in the title with the current status. But only the first occurrence of the /\[(.)\]/ pattern.
-	let taskLine = task.title.replace(/\[(.)\]/, `[${task.status}]`);
+	let taskLine = keepArchivedFieldAtEnd(
+		task.title.replace(/\[(.)\]/, `[${task.status}]`),
+	);
 
 	// Add the body content, indent each line with a tab (or 4 spaces) for proper formatting
 	const bodyLines = task.body
@@ -281,6 +288,90 @@ export const getSanitizedTaskContent = (
 	return completeTask;
 };
 
+const ARCHIVED_INLINE_FIELD = "[archived::true]";
+const ARCHIVED_INLINE_FIELD_TEST_REGEX = /\[archived::[^\]]*\]/i;
+const ARCHIVED_INLINE_FIELD_STRIP_REGEX = /\s*\[archived::[^\]]*\]\s*/gi;
+
+export const keepArchivedFieldAtEnd = (title: string): string => {
+	const matches = title.match(ARCHIVED_INLINE_FIELD_STRIP_REGEX);
+	if (!matches || matches.length === 0) {
+		return title;
+	}
+	const lastArchivedToken = matches[matches.length - 1].trim();
+	if (title.trimEnd().endsWith(lastArchivedToken) && matches.length === 1) {
+		return title;
+	}
+	const stripped = title
+		.replace(ARCHIVED_INLINE_FIELD_STRIP_REGEX, " ")
+		.trimEnd();
+	return `${stripped} ${lastArchivedToken}`;
+};
+
+/**
+ * Resolves the default DONE status symbol for archiving:
+ * prefers a DONE status named "Completed" (case-insensitive), otherwise the first DONE status.
+ */
+export const getDefaultArchivedStatusSymbol = (
+	customStatuses: CustomStatus[] | undefined,
+): string => {
+	if (!customStatuses || customStatuses.length === 0) return "";
+	const doneStatuses = customStatuses.filter(
+		(status) => status.type === statusTypeNames.DONE,
+	);
+	if (doneStatuses.length === 0) return "";
+	const completedStatus = doneStatuses.find(
+		(status) => status.name.trim().toLowerCase() === "completed",
+	);
+	return (completedStatus ?? doneStatuses[0]).symbol;
+};
+
+/**
+ * Returns the configured archive status symbol if the feature is enabled and
+ * the symbol corresponds to a valid DONE status; otherwise undefined.
+ */
+export const getConfiguredArchivedStatusSymbol = (
+	globalSettings: globalSettingsData | undefined,
+): string | undefined => {
+	if (!globalSettings?.autoAddArchivedOnComplete) return undefined;
+	const symbol = globalSettings.archivedStatusSymbol;
+	if (!symbol) return undefined;
+	const matchedStatus = globalSettings.customStatuses?.find(
+		(status) =>
+			status.symbol === symbol && status.type === statusTypeNames.DONE,
+	);
+	return matchedStatus ? matchedStatus.symbol : undefined;
+};
+
+/**
+ * Adds/normalizes `[archived::true]` at the end of the task title when entering
+ * the configured archive status, and removes it when leaving that status.
+ */
+export const sanitizeArchived = (
+	globalSettings: globalSettingsData,
+	title: string,
+	newStatusSymbol: string,
+): string => {
+	const archivedStatusSymbol =
+		getConfiguredArchivedStatusSymbol(globalSettings);
+	if (archivedStatusSymbol === undefined) {
+		return title;
+	}
+
+	const strippedTitle = title
+		.replace(ARCHIVED_INLINE_FIELD_STRIP_REGEX, " ")
+		.trimEnd();
+
+	if (newStatusSymbol === archivedStatusSymbol) {
+		return `${strippedTitle} ${ARCHIVED_INLINE_FIELD}`;
+	}
+
+	if (ARCHIVED_INLINE_FIELD_TEST_REGEX.test(title)) {
+		return strippedTitle;
+	}
+
+	return title;
+};
+
 /**
  * Sanitizes the status value of a task by replacing the old status value with a new one.
  * If there is an issue with extracting the old status value, the old title value is returned as it is.
@@ -334,6 +425,8 @@ export const sanitizeStatus = (
 		newTitle = sanitizeCancelledDate(globalSettings, newTitle, "");
 		newTitle = sanitizeCompletionDate(globalSettings, newTitle, "");
 	}
+
+	newTitle = sanitizeArchived(globalSettings, newTitle, newStatusSymbol);
 
 	return newTitle;
 };
@@ -398,10 +491,12 @@ export const sanitizeCreatedDate = (
 				title.slice(0, cursorLocation.charIndex).trimEnd() + " ";
 			const spaceAfter =
 				" " + title.slice(cursorLocation.charIndex).trim();
-			return `${spaceBefore}${createdDateWithFormat}${spaceAfter}`;
+			return keepArchivedFieldAtEnd(
+				`${spaceBefore}${createdDateWithFormat}${spaceAfter}`,
+			);
 		}
 		// No existing created date found, append new one at the end
-		return `${title} ${createdDateWithFormat}`;
+		return keepArchivedFieldAtEnd(`${title} ${createdDateWithFormat}`);
 	}
 
 	// If extracted created date matches the new one, no need to change
@@ -474,10 +569,12 @@ export const sanitizeStartDate = (
 				title.slice(0, cursorLocation.charIndex).trimEnd() + " ";
 			const spaceAfter =
 				" " + title.slice(cursorLocation.charIndex).trim();
-			return `${spaceBefore}${startDateWithFormat}${spaceAfter}`;
+			return keepArchivedFieldAtEnd(
+				`${spaceBefore}${startDateWithFormat}${spaceAfter}`,
+			);
 		}
 		// No existing created date found, append new one at the end
-		return `${title} ${startDateWithFormat}`;
+		return keepArchivedFieldAtEnd(`${title} ${startDateWithFormat}`);
 	}
 
 	const extractedStartDate = extractedStartDateMatch[0];
@@ -552,10 +649,12 @@ export const sanitizeScheduledDate = (
 				title.slice(0, cursorLocation.charIndex).trimEnd() + " ";
 			const spaceAfter =
 				" " + title.slice(cursorLocation.charIndex).trim();
-			return `${spaceBefore}${scheduledDateWithFormat}${spaceAfter}`;
+			return keepArchivedFieldAtEnd(
+				`${spaceBefore}${scheduledDateWithFormat}${spaceAfter}`,
+			);
 		}
 		// No existing scheduled date found, append new one at the end
-		return `${title} ${scheduledDateWithFormat}`;
+		return keepArchivedFieldAtEnd(`${title} ${scheduledDateWithFormat}`);
 	}
 
 	if (extractedScheduledDateMatch[0].includes(scheduledDateWithFormat)) {
@@ -631,10 +730,12 @@ export const sanitizeDueDate = (
 				title.slice(0, cursorLocation.charIndex).trimEnd() + " ";
 			const spaceAfter =
 				" " + title.slice(cursorLocation.charIndex).trim();
-			return `${spaceBefore}${dueDateWithFormat}${spaceAfter}`;
+			return keepArchivedFieldAtEnd(
+				`${spaceBefore}${dueDateWithFormat}${spaceAfter}`,
+			);
 		}
 		// No existing created date found, append new one at the end
-		return `${title} ${dueDateWithFormat}`;
+		return keepArchivedFieldAtEnd(`${title} ${dueDateWithFormat}`);
 	}
 
 	if (extractedDueDateMatch[0].includes(dueDateWithFormat)) {
@@ -705,10 +806,12 @@ export const sanitizeCompletionDate = (
 				title.slice(0, cursorLocation.charIndex).trimEnd() + " ";
 			const spaceAfter =
 				" " + title.slice(cursorLocation.charIndex).trim();
-			return `${spaceBefore}${completedWitFormat}${spaceAfter}`;
+			return keepArchivedFieldAtEnd(
+				`${spaceBefore}${completedWitFormat}${spaceAfter}`,
+			);
 		}
 		// No existing completion date found, append new one at the end
-		return `${title} ${completedWitFormat}`;
+		return keepArchivedFieldAtEnd(`${title} ${completedWitFormat}`);
 	}
 
 	const extractedCompletionDate = extractedCompletionDateMatch[0];
@@ -784,10 +887,12 @@ export const sanitizeCancelledDate = (
 				title.slice(0, cursorLocation.charIndex).trimEnd() + " ";
 			const spaceAfter =
 				" " + title.slice(cursorLocation.charIndex).trim();
-			return `${spaceBefore}${cancelledWithFormat}${spaceAfter}`;
+			return keepArchivedFieldAtEnd(
+				`${spaceBefore}${cancelledWithFormat}${spaceAfter}`,
+			);
 		}
 		// No existing cancellation date found, append new one at the end
-		return `${title} ${cancelledWithFormat}`;
+		return keepArchivedFieldAtEnd(`${title} ${cancelledWithFormat}`);
 	}
 
 	// If extracted cancellation date matches the new one, no need to change
@@ -903,11 +1008,13 @@ export const sanitizeTime = (
 				.trimEnd();
 			const spaceAfter = title.slice(cursorLocation.charIndex).trim();
 
-			return `${spaceBefore} ${newTimeWithFormat} ${spaceAfter}`;
+			return keepArchivedFieldAtEnd(
+				`${spaceBefore} ${newTimeWithFormat} ${spaceAfter}`,
+			);
 		}
 
 		// If no time is present, append it at the end
-		return `${title} ${newTimeWithFormat} `;
+		return keepArchivedFieldAtEnd(`${title} ${newTimeWithFormat} `);
 	}
 };
 
@@ -1010,10 +1117,12 @@ export const sanitizePriority = (
 					title.slice(0, cursorLocation.charIndex).trimEnd() + " ";
 				const spaceAfter =
 					" " + title.slice(cursorLocation.charIndex).trim();
-				return `${spaceBefore}${priorityWithFormat}${spaceAfter}`;
+				return keepArchivedFieldAtEnd(
+					`${spaceBefore}${priorityWithFormat}${spaceAfter}`,
+				);
 			}
 
-			return `${title} ${priorityWithFormat}`;
+			return keepArchivedFieldAtEnd(`${title} ${priorityWithFormat}`);
 		}
 		return title;
 	}
@@ -1148,7 +1257,9 @@ export const sanitizeTags = (
 	}
 
 	// Sanitize the title by reducing two or more spaces into one space.
-	return updatedTitle.replace(/ {2,}/g, " ").trimEnd();
+	return keepArchivedFieldAtEnd(
+		updatedTitle.replace(/ {2,}/g, " ").trimEnd(),
+	);
 };
 
 /**
@@ -1262,10 +1373,12 @@ export const sanitizeReminder = (
 		const spaceBefore =
 			title.slice(0, cursorLocation.charIndex).trimEnd() + " ";
 		const spaceAfter = " " + title.slice(cursorLocation.charIndex).trim();
-		return `${spaceBefore}${formattedReminder}${spaceAfter}`;
+		return keepArchivedFieldAtEnd(
+			`${spaceBefore}${formattedReminder}${spaceAfter}`,
+		);
 	}
 	// If no existing reminder found, append new one at the end
-	return `${title} ${formattedReminder}`;
+	return keepArchivedFieldAtEnd(`${title} ${formattedReminder}`);
 };
 
 /**
@@ -1331,11 +1444,13 @@ export const sanitizeDependsOn = (
 				title.slice(0, cursorLocation.charIndex).trimEnd() + " ";
 			const spaceAfter =
 				" " + title.slice(cursorLocation.charIndex).trim();
-			return `${spaceBefore}${dependsOnFormat}${spaceAfter}`;
+			return keepArchivedFieldAtEnd(
+				`${spaceBefore}${dependsOnFormat}${spaceAfter}`,
+			);
 		}
 
 		// If no existing dependsOn found, append new one at the end
-		return `${title} ${dependsOnFormat}`;
+		return keepArchivedFieldAtEnd(`${title} ${dependsOnFormat}`);
 	}
 };
 
@@ -1597,6 +1712,10 @@ export const cleanTaskTitle = (plugin: TaskBoard, task: taskItem): string => {
 		}
 	}
 
+	cleanedTitle = cleanedTitle
+		.replace(ARCHIVED_INLINE_FIELD_STRIP_REGEX, " ")
+		.trim();
+
 	// Trim extra spaces and return the cleaned title
 	return cleanedTitle.trim();
 };
@@ -1761,6 +1880,9 @@ export const cleanTaskTitleLegacy = (task: taskItem): string => {
 				.onCompletionRegex,
 			"",
 		)
+		.trim();
+	cleanedTitle = cleanedTitle
+		.replace(ARCHIVED_INLINE_FIELD_STRIP_REGEX, " ")
 		.trim();
 
 	// Trim extra spaces and return the cleaned title

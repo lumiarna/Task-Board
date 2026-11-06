@@ -38,5 +38,16 @@ export const appendTaskIdToContent = (
 	format: string,
 ): string => {
 	const property = getTaskIdProperty(id, format);
-	return formattedTaskContent.replace(/^(.*?)(\n|$)/, `$1 ${property} $2`);
+	return formattedTaskContent.replace(
+		/^(.*?)(\s*\[archived::[^\]]*\])?(\n|$)/i,
+		(
+			_match,
+			prefix: string,
+			archivedSuffix: string | undefined,
+			lineEnd: string,
+		) =>
+			archivedSuffix
+				? `${prefix} ${property} ${archivedSuffix.trim()}${lineEnd}`
+				: `${prefix} ${property} ${lineEnd}`,
+	);
 };

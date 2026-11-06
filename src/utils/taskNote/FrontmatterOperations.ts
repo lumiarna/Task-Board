@@ -13,8 +13,30 @@ import {
 	getStatusNameFromStatusSymbol,
 	getPriorityNameForTaskNote,
 } from "./TaskNoteUtils.js";
-import { FrontmatterFormattingInterface } from "../../interfaces/GlobalSettings.js";
+import {
+	CustomStatus,
+	FrontmatterFormattingInterface,
+} from "../../interfaces/GlobalSettings.js";
 import { compareTwoTags } from "../algorithms/ScanningFilterer.js";
+import { getConfiguredArchivedStatusSymbol } from "../taskLine/TaskContentFormatter.js";
+
+const ROW_STATUS_KEY = "rowStatus";
+const ROW_STATUS_ARCHIVED_VALUE = "ARCHIVED";
+
+function resolveFrontmatterStatusSymbol(
+	rawStatus: unknown,
+	customStatuses: CustomStatus[],
+): string {
+	if (typeof rawStatus !== "string") return " ";
+	const byName = customStatuses.find((status) => status.name === rawStatus);
+	if (byName) return byName.symbol;
+	const unquoted = rawStatus.replace(/^"(.*)"$/, "$1");
+	const bySymbol = customStatuses.find(
+		(status) => status.symbol === unquoted,
+	);
+	if (bySymbol) return bySymbol.symbol;
+	return unquoted;
+}
 
 /**
  * Extract frontmatter from file content
@@ -280,6 +302,16 @@ export function createFrontmatterFromTask(
 		frontmatterObj[
 			getCustomFrontmatterKey("completion", frontmatterFormatting)
 		] = task.completion;
+	const archivedStatusSymbol = getConfiguredArchivedStatusSymbol(
+		plugin.settings.data,
+	);
+	if (
+		archivedStatusSymbol !== undefined &&
+		task.status === archivedStatusSymbol
+	) {
+		(frontmatterObj as Record<string, unknown>)[ROW_STATUS_KEY] =
+			ROW_STATUS_ARCHIVED_VALUE;
+	}
 
 	// Order the frontmatter properties based on index values
 	const orderedFrontmatter = orderFrontmatterProperties(
@@ -385,12 +417,35 @@ export function updateFrontmatterProperties(
 	}
 
 	const statusKey = getCustomFrontmatterKey("status", frontmatterFormatting);
+	const customStatuses = plugin.settings.data.customStatuses ?? [];
+	const oldStatusSymbol = resolveFrontmatterStatusSymbol(
+		existingFrontmatter?.[statusKey],
+		customStatuses,
+	);
 	if (task.status) {
 		const statusName = getStatusNameFromStatusSymbol(
 			task.status,
-			plugin.settings.data.customStatuses ?? [],
+			customStatuses,
 		);
 		tempUpdates[statusKey] = statusName ?? `"${task.status}"`;
+	}
+
+	const archivedStatusSymbol = getConfiguredArchivedStatusSymbol(
+		plugin.settings.data,
+	);
+	if (archivedStatusSymbol !== undefined && oldStatusSymbol !== task.status) {
+		const currentRowStatus = oldFrontmatter?.[ROW_STATUS_KEY];
+		if (task.status === archivedStatusSymbol) {
+			if (
+				currentRowStatus === undefined ||
+				currentRowStatus === ROW_STATUS_ARCHIVED_VALUE
+			) {
+				tempUpdates[ROW_STATUS_KEY] = ROW_STATUS_ARCHIVED_VALUE;
+			}
+		} else if (currentRowStatus === ROW_STATUS_ARCHIVED_VALUE) {
+			delete tempUpdates[ROW_STATUS_KEY];
+			delete oldFrontmatter?.[ROW_STATUS_KEY];
+		}
 	}
 
 	// All the below properties are optional
